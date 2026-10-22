@@ -3,12 +3,27 @@ import { config } from '../config/env.js';
 
 let prismaInstance: PrismaClient | null = null;
 
+function getEffectiveDatabaseUrl(): string {
+  let url = config.DATABASE_URL;
+  if (!url) return url;
+  // If pointing to direct Supabase host (which has IPv6-only records),
+  // auto-route to the Supabase IPv4 Pooler for ap-northeast-2
+  if (url.includes('db.zwigqoqqnqmgdnafjkor.supabase.co')) {
+    url = url.replace('db.zwigqoqqnqmgdnafjkor.supabase.co:5432', 'aws-0-ap-northeast-2.pooler.supabase.com:5432');
+    if (!url.includes('postgres.zwigqoqqnqmgdnafjkor:')) {
+      url = url.replace('postgres:', 'postgres.zwigqoqqnqmgdnafjkor:');
+    }
+  }
+  return url;
+}
+
 export function getPrismaClient(): PrismaClient {
   if (!prismaInstance) {
+    const effectiveUrl = getEffectiveDatabaseUrl();
     prismaInstance = new PrismaClient({
       datasources: {
         db: {
-          url: config.DATABASE_URL,
+          url: effectiveUrl,
         },
       },
       log: config.APP_ENV === 'development' ? ['warn', 'error'] : ['error'],
