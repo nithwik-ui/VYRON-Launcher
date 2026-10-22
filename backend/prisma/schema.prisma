@@ -1,0 +1,376 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id                      String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  username                String                   @unique @db.VarChar(32)
+  email                   String                   @unique @db.VarChar(255)
+  passwordHash            String                   @map("password_hash") @db.VarChar(255)
+  avatarUrl               String?                  @map("avatar_url") @db.VarChar(512)
+  bio                     String?                  @db.Text
+  isActive                Boolean                  @default(true) @map("is_active")
+  isVerified              Boolean                  @default(false) @map("is_verified")
+  role                    String                   @default("USER") @db.VarChar(32)
+  totpSecret              String?                  @map("totp_secret") @db.VarChar(128)
+  isTotpEnabled           Boolean                  @default(false) @map("is_totp_enabled")
+  createdAt               DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  sessions                UserSession[]
+  oauthAccounts           OAuthAccount[]
+  devices                 Device[]
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
+  auditLogs               AuditLog[]
+  serverFavorites         ServerFavorite[]
+
+  @@map("users")
+}
+
+model UserSession {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  deviceId         String    @map("device_id") @db.VarChar(128)
+  refreshTokenHash String    @unique @map("refresh_token_hash") @db.VarChar(255)
+  ipAddress        String?   @map("ip_address") @db.VarChar(45)
+  userAgent        String?   @map("user_agent") @db.Text
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "idx_user_sessions_user_id")
+  @@index([deviceId], map: "idx_user_sessions_device_id")
+  @@map("user_sessions")
+}
+
+model OAuthAccount {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  provider        String   @db.VarChar(32)
+  providerUserId  String   @map("provider_user_id") @db.VarChar(255)
+  accessTokenEnc  String?  @map("access_token_enc") @db.Text
+  refreshTokenEnc String?  @map("refresh_token_enc") @db.Text
+  profileData     Json?    @map("profile_data")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId], map: "uq_oauth_provider_user")
+  @@index([userId], map: "idx_oauth_accounts_user")
+  @@map("oauth_accounts")
+}
+
+model Device {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String?   @map("user_id") @db.Uuid
+  deviceFingerprint String    @unique @map("device_fingerprint") @db.VarChar(128)
+  deviceModel       String?   @map("device_model") @db.VarChar(128)
+  manufacturer      String?   @db.VarChar(64)
+  androidVersion    Int?      @map("android_version")
+  appVersion        String    @map("app_version") @db.VarChar(32)
+  fcmPushToken      String?   @map("fcm_push_token") @db.Text
+  lastSeenAt        DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user              User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([deviceFingerprint], map: "idx_devices_fingerprint")
+  @@index([userId], map: "idx_devices_user_id")
+  @@map("devices")
+}
+
+model EmailVerificationToken {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash") @db.VarChar(255)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("email_verification_tokens")
+}
+
+model PasswordResetToken {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash") @db.VarChar(255)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_reset_tokens")
+}
+
+model AuditLog {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String?  @map("user_id") @db.Uuid
+  action         String   @db.VarChar(64)
+  targetResource String   @map("target_resource") @db.VarChar(64)
+  targetId       String?  @map("target_id") @db.VarChar(128)
+  ipAddress      String?  @map("ip_address") @db.VarChar(45)
+  userAgent      String?  @map("user_agent") @db.Text
+  requestId      String?  @map("request_id") @db.VarChar(64)
+  metadata       Json?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user           User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([action], map: "idx_audit_logs_action")
+  @@index([userId], map: "idx_audit_logs_user_id")
+  @@index([createdAt(sort: Desc)], map: "idx_audit_logs_created_at")
+  @@map("audit_logs")
+}
+
+model NewsCategory {
+  id           String        @id @db.VarChar(32)
+  name         String        @db.VarChar(64)
+  description  String?       @db.Text
+  displayOrder Int           @default(0) @map("display_order")
+  articles     NewsArticle[]
+
+  @@map("news_categories")
+}
+
+model NewsArticle {
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug          String       @unique @db.VarChar(128)
+  title         String       @db.VarChar(255)
+  summary       String       @db.Text
+  bodyMarkdown  String       @map("body_markdown") @db.Text
+  coverImageUrl String?      @map("cover_image_url") @db.VarChar(512)
+  categoryId    String       @map("category_id") @db.VarChar(32)
+  authorName    String       @map("author_name") @db.VarChar(64)
+  status        String       @default("DRAFT") @db.VarChar(32)
+  isFeatured    Boolean      @default(false) @map("is_featured")
+  publishedAt   DateTime?    @map("published_at") @db.Timestamptz(6)
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  category      NewsCategory @relation(fields: [categoryId], references: [id])
+
+  @@index([status, publishedAt(sort: Desc)], map: "idx_news_published")
+  @@index([isFeatured, publishedAt(sort: Desc)], map: "idx_news_featured")
+  @@map("news_articles")
+}
+
+model Announcement {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title     String   @db.VarChar(128)
+  message   String   @db.Text
+  severity  String   @default("INFO") @db.VarChar(32)
+  actionUrl String?  @map("action_url") @db.VarChar(512)
+  startAt   DateTime @map("start_at") @db.Timestamptz(6)
+  endAt     DateTime @map("end_at") @db.Timestamptz(6)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([isActive, startAt, endAt], map: "idx_announcements_active")
+  @@map("announcements")
+}
+
+model MinecraftVersion {
+  id              String                    @id @db.VarChar(64)
+  versionType     String                    @map("version_type") @db.VarChar(32)
+  releaseTime     DateTime                  @map("release_time") @db.Timestamptz(6)
+  pistonUrl       String                    @map("piston_url") @db.VarChar(512)
+  sha1Hash        String                    @map("sha1_hash") @db.VarChar(64)
+  complianceLevel Int                       @default(0) @map("compliance_level")
+  isPublished     Boolean                   @default(true) @map("is_published")
+  createdAt       DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  metadata        MinecraftVersionMetadata?
+  compatibility   CompatibilityProfile[]
+
+  @@index([versionType, releaseTime(sort: Desc)], map: "idx_minecraft_versions_type")
+  @@map("minecraft_versions")
+}
+
+model MinecraftVersionMetadata {
+  versionId         String           @id @map("version_id") @db.VarChar(64)
+  minJavaVersion    Int              @default(8) @map("min_java_version")
+  mainClass         String           @map("main_class") @db.VarChar(255)
+  assetIndexId      String           @map("asset_index_id") @db.VarChar(64)
+  requiredLibraries Json             @default("[]") @map("required_libraries")
+  rawManifestJson   Json?            @map("raw_manifest_json")
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  version           MinecraftVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@map("minecraft_version_metadata")
+}
+
+model CompatibilityProfile {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  minecraftVersion String           @map("minecraft_version") @db.VarChar(64)
+  deviceSoc        String           @map("device_soc") @db.VarChar(128)
+  gpuRenderer      String           @map("gpu_renderer") @db.VarChar(64)
+  recommendedJava  Int              @map("recommended_java")
+  loader           String           @default("Vanilla") @db.VarChar(32)
+  status           String           @db.VarChar(32)
+  recommendedRamMb Int              @map("recommended_ram_mb")
+  notes            String?          @db.Text
+  updatedAt        DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  version          MinecraftVersion @relation(fields: [minecraftVersion], references: [id], onDelete: Cascade)
+
+  @@index([minecraftVersion, deviceSoc, gpuRenderer], map: "idx_compat_lookup")
+  @@map("compatibility_profiles")
+}
+
+model JavaRuntime {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  majorVersion   Int      @map("major_version")
+  architecture   String   @db.VarChar(32)
+  vendor         String   @db.VarChar(64)
+  downloadUrl    String   @map("download_url") @db.VarChar(512)
+  sha256Checksum String   @map("sha256_checksum") @db.VarChar(64)
+  fileSizeBytes  BigInt   @map("file_size_bytes")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([majorVersion, architecture, vendor], map: "uq_java_runtime_arch")
+  @@index([majorVersion, architecture], map: "idx_java_runtimes_version_arch")
+  @@map("java_runtimes")
+}
+
+model LauncherRelease {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  versionName       String    @map("version_name") @db.VarChar(32)
+  versionCode       Int       @map("version_code")
+  channel           String    @default("STABLE") @db.VarChar(32)
+  minAndroidSdk     Int       @default(21) @map("min_android_sdk")
+  downloadUrl       String    @map("download_url") @db.VarChar(512)
+  sha256Hash        String    @map("sha256_hash") @db.VarChar(64)
+  fileSizeBytes     BigInt    @map("file_size_bytes")
+  changelogMarkdown String    @map("changelog_markdown") @db.Text
+  rolloutPercentage Int       @default(100) @map("rollout_percentage")
+  isMandatory       Boolean   @default(false) @map("is_mandatory")
+  publishedAt       DateTime? @map("published_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([channel, versionCode(sort: Desc)], map: "idx_releases_channel_code")
+  @@map("launcher_releases")
+}
+
+model CrashReport {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  appVersion       String   @map("app_version") @db.VarChar(32)
+  androidSdk       Int      @map("android_sdk")
+  deviceModel      String?  @map("device_model") @db.VarChar(128)
+  soc              String?  @db.VarChar(128)
+  minecraftVersion String?  @map("minecraft_version") @db.VarChar(64)
+  renderer         String?  @db.VarChar(64)
+  loader           String?  @db.VarChar(32)
+  stackTrace       String   @map("stack_trace") @db.Text
+  errorReason      String?  @map("error_reason") @db.VarChar(255)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([appVersion, createdAt(sort: Desc)], map: "idx_crashes_version_time")
+  @@map("crash_reports")
+}
+
+model Server {
+  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name              String            @db.VarChar(64)
+  host              String            @db.VarChar(255)
+  port              Int               @default(25565)
+  summary           String            @db.Text
+  description       String?           @db.Text
+  iconUrl           String?           @map("icon_url") @db.VarChar(512)
+  bannerUrl         String?           @map("banner_url") @db.VarChar(512)
+  websiteUrl        String?           @map("website_url") @db.VarChar(512)
+  category          String            @db.VarChar(32)
+  supportedVersions String            @map("supported_versions") @db.VarChar(64)
+  isVerified        Boolean           @default(false) @map("is_verified")
+  isActive          Boolean           @default(true) @map("is_active")
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  status            ServerStatus?
+  favorites         ServerFavorite[]
+  campaigns         ServerCampaign[]
+
+  @@unique([host, port], map: "uq_server_host_port")
+  @@index([category], map: "idx_servers_category")
+  @@index([isActive, isVerified], map: "idx_servers_active_verified")
+  @@map("servers")
+}
+
+model ServerStatus {
+  serverId      String   @id @map("server_id") @db.Uuid
+  isOnline      Boolean  @default(false) @map("is_online")
+  playersOnline Int      @default(0) @map("players_online")
+  playersMax    Int      @default(0) @map("players_max")
+  motdClean     String?  @map("motd_clean") @db.Text
+  pingLatencyMs Int?     @map("ping_latency_ms")
+  lastPingedAt  DateTime @default(now()) @map("last_pinged_at") @db.Timestamptz(6)
+
+  server        Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@index([isOnline, playersOnline(sort: Desc)], map: "idx_server_status_online")
+  @@map("server_status")
+}
+
+model ServerFavorite {
+  userId    String   @map("user_id") @db.Uuid
+  serverId  String   @map("server_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  server    Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, serverId])
+  @@map("server_favorites")
+}
+
+model ServerCampaign {
+  id           String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  serverId     String            @map("server_id") @db.Uuid
+  campaignName String            @map("campaign_name") @db.VarChar(128)
+  sponsorName  String            @map("sponsor_name") @db.VarChar(128)
+  startAt      DateTime          @map("start_at") @db.Timestamptz(6)
+  endAt        DateTime          @map("end_at") @db.Timestamptz(6)
+  priority     Int               @default(0)
+  status       String            @default("DRAFT") @db.VarChar(32)
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  server       Server            @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  promotions   ServerPromotion[]
+
+  @@index([status, startAt, endAt], map: "idx_campaigns_active")
+  @@map("server_campaigns")
+}
+
+model ServerPromotion {
+  id               String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  campaignId       String         @map("campaign_id") @db.Uuid
+  placementSlot    String         @map("placement_slot") @db.VarChar(32)
+  impressionsCount BigInt         @default(0) @map("impressions_count")
+  clicksCount      BigInt         @default(0) @map("clicks_count")
+  badgeLabel       String         @default("SPONSORED") @map("badge_label") @db.VarChar(32)
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  campaign         ServerCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([placementSlot], map: "idx_promotions_slot")
+  @@map("server_promotions")
+}
+
+
