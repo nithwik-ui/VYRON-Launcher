@@ -6,6 +6,8 @@
  * in production environments.
  */
 
+import nodemailer, { Transporter } from 'nodemailer';
+
 export interface EmailProvider {
   send(to: string, subject: string, text: string, html: string): Promise<boolean>;
 }
@@ -13,16 +15,100 @@ export interface EmailProvider {
 export class ConsoleEmailProvider implements EmailProvider {
   async send(to: string, subject: string, text: string, _html: string): Promise<boolean> {
     const masked = EmailService.maskEmail(to);
-    // In dev / test, log delivery notification with masked email
-    if (process.env.NODE_ENV !== 'test') {
-      console.log(`[EmailService:Console] Sent "${subject}" to ${masked}`);
-    }
+    console.log(`[EmailService:Console] Sent "${subject}" to ${masked} (Raw email: ${to})`);
     return true;
   }
 }
 
+export class SmtpEmailProvider implements EmailProvider {
+  private transporter: Transporter;
+  private from: string;
+
+  constructor() {
+    const host = process.env.SMTP_HOST || 'smtp.gmail.com';
+    const port = Number(process.env.SMTP_PORT || 587);
+    const secure = process.env.SMTP_SECURE === 'true' || port === 465;
+    const user = process.env.SMTP_USER || '';
+    const pass = process.env.SMTP_PASS || '';
+    this.from = process.env.SMTP_FROM || `"VYRON Launcher" <${user || 'no-reply@vyronlauncher.com'}>`;
+
+    this.transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure,
+      auth: user && pass ? { user, pass } : undefined,
+    });
+  }
+
+  async send(to: string, subject: string, text: string, html: string): Promise<boolean> {
+    try {
+      await this.transporter.sendMail({
+        from: this.from,
+        to,
+        subject,
+        text,
+        html,
+      });
+      console.log(`[EmailService:SMTP] Delivered "${subject}" to ${EmailService.maskEmail(to)}`);
+      return true;
+    } catch (err: any) {
+      console.error(`[EmailService:SMTP] Failed to send email to ${EmailService.maskEmail(to)}:`, err?.message || err);
+      return false;
+    }
+  }
+}
+
+export class ResendEmailProvider implements EmailProvider {
+  private apiKey: string;
+  private from: string;
+
+  constructor(apiKey: string) {
+    this.apiKey = apiKey;
+    this.from = process.env.RESEND_FROM || 'VYRON Launcher <onboarding@resend.dev>';
+  }
+
+  async send(to: string, subject: string, text: string, html: string): Promise<boolean> {
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: this.from,
+          to: [to],
+          subject,
+          text,
+          html,
+        }),
+      });
+      if (res.ok) {
+        console.log(`[EmailService:Resend] Delivered "${subject}" to ${EmailService.maskEmail(to)}`);
+        return true;
+      }
+      const data = await res.text();
+      console.error(`[EmailService:Resend] Error delivering email:`, data);
+      return false;
+    } catch (err: any) {
+      console.error(`[EmailService:Resend] Network error:`, err?.message || err);
+      return false;
+    }
+  }
+}
+
 export class EmailService {
-  private static provider: EmailProvider = new ConsoleEmailProvider();
+  private static initProvider(): EmailProvider {
+    if (process.env.RESEND_API_KEY) {
+      return new ResendEmailProvider(process.env.RESEND_API_KEY);
+    }
+    if (process.env.SMTP_HOST && process.env.SMTP_USER) {
+      return new SmtpEmailProvider();
+    }
+    return new ConsoleEmailProvider();
+  }
+
+  private static provider: EmailProvider = EmailService.initProvider();
 
   public static setProvider(customProvider: EmailProvider): void {
     this.provider = customProvider;
