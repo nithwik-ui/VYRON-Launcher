@@ -30,6 +30,7 @@ export class SmtpEmailProvider implements EmailProvider {
     const secure = process.env.SMTP_SECURE === 'true' || port === 465;
     const user = process.env.SMTP_USER || '';
     const pass = process.env.SMTP_PASS || '';
+<<<<<<< Updated upstream
     this.from = process.env.SMTP_FROM || `"VYRON Launcher" <${user || 'no-reply@vyronlauncher.com'}>`;
 
     this.transporter = nodemailer.createTransport({
@@ -38,6 +39,23 @@ export class SmtpEmailProvider implements EmailProvider {
       secure,
       auth: user && pass ? { user, pass } : undefined,
     });
+=======
+    this.from = process.env.SMTP_FROM || `"VYRON Launcher" <${user || 'vyronlauncher@gmail.com'}>`;
+
+    if (host.includes('gmail') || user.endsWith('@gmail.com')) {
+      this.transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: { user, pass },
+      });
+    } else {
+      this.transporter = nodemailer.createTransport({
+        host,
+        port,
+        secure,
+        auth: user && pass ? { user, pass } : undefined,
+      });
+    }
+>>>>>>> Stashed changes
   }
 
   async send(to: string, subject: string, text: string, html: string): Promise<boolean> {
@@ -102,7 +120,11 @@ export class EmailService {
     if (process.env.RESEND_API_KEY) {
       return new ResendEmailProvider(process.env.RESEND_API_KEY);
     }
+<<<<<<< Updated upstream
     if (process.env.SMTP_HOST && process.env.SMTP_USER) {
+=======
+    if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+>>>>>>> Stashed changes
       return new SmtpEmailProvider();
     }
     return new ConsoleEmailProvider();
