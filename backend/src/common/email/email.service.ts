@@ -22,26 +22,35 @@ export class ConsoleEmailProvider implements EmailProvider {
 export class SmtpEmailProvider implements EmailProvider {
   private transporter: Transporter;
   private from: string;
+  private user: string;
+  private pass: string;
 
   constructor() {
-    const host = process.env.SMTP_HOST || 'smtp.gmail.com';
+    const host = (process.env.SMTP_HOST || 'smtp.gmail.com').trim();
     const port = Number(process.env.SMTP_PORT || 587);
     const secure = process.env.SMTP_SECURE === 'true' || port === 465;
-    const user = process.env.SMTP_USER || '';
-    const pass = process.env.SMTP_PASS || '';
-    this.from = process.env.SMTP_FROM || `"VYRON Launcher" <${user || 'vyronlauncher@gmail.com'}>`;
+    this.user = (process.env.SMTP_USER || '').trim();
+    // Strip spaces from Google App Password if pasted as "xxxx xxxx xxxx xxxx"
+    this.pass = (process.env.SMTP_PASS || '').trim().replace(/\s+/g, '');
+    this.from = process.env.SMTP_FROM || `"VYRON Launcher" <${this.user || 'vyronlauncher@gmail.com'}>`;
 
-    if (host.includes('gmail') || user.endsWith('@gmail.com')) {
+    if (host.includes('gmail') || this.user.endsWith('@gmail.com')) {
       this.transporter = nodemailer.createTransport({
         service: 'gmail',
-        auth: { user, pass },
+        auth: { user: this.user, pass: this.pass },
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000,
       });
     } else {
       this.transporter = nodemailer.createTransport({
         host,
         port,
         secure,
-        auth: user && pass ? { user, pass } : undefined,
+        auth: this.user && this.pass ? { user: this.user, pass: this.pass } : undefined,
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000,
       });
     }
   }
@@ -58,7 +67,34 @@ export class SmtpEmailProvider implements EmailProvider {
       console.log(`[EmailService:SMTP] Delivered "${subject}" to ${EmailService.maskEmail(to)}`);
       return true;
     } catch (err: any) {
-      console.error(`[EmailService:SMTP] Failed to send email to ${EmailService.maskEmail(to)}:`, err?.message || err);
+      console.error(`[EmailService:SMTP] Primary delivery failed to ${EmailService.maskEmail(to)}:`, err?.message || err);
+      // Fallback attempt: if service: 'gmail' (port 465) failed, attempt direct port 587 with STARTTLS
+      if (this.user && this.pass) {
+        try {
+          console.log(`[EmailService:SMTP] Retrying delivery via smtp.gmail.com:587 (STARTTLS)...`);
+          const fallbackTransporter = nodemailer.createTransport({
+            host: 'smtp.gmail.com',
+            port: 587,
+            secure: false,
+            auth: { user: this.user, pass: this.pass },
+            connectionTimeout: 10000,
+            greetingTimeout: 10000,
+            socketTimeout: 15000,
+            tls: { rejectUnauthorized: false },
+          });
+          await fallbackTransporter.sendMail({
+            from: this.from,
+            to,
+            subject,
+            text,
+            html,
+          });
+          console.log(`[EmailService:SMTP] Delivered "${subject}" via fallback to ${EmailService.maskEmail(to)}`);
+          return true;
+        } catch (fallbackErr: any) {
+          console.error(`[EmailService:SMTP] Fallback also failed:`, fallbackErr?.message || fallbackErr);
+        }
+      }
       return false;
     }
   }
