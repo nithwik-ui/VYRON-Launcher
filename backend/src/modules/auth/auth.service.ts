@@ -123,8 +123,8 @@ export class AuthService {
       userId: user.id,
       email: user.email,
       username: user.username,
-      verificationToken: rawVerificationToken, // For legacy token verification
-      otp: rawOtp,                             // For 6-digit OTP verification
+      verificationToken: process.env.APP_ENV === 'production' ? undefined : rawVerificationToken, // For legacy token verification in dev
+      otp: process.env.APP_ENV === 'production' ? undefined : rawOtp,                             // For 6-digit OTP verification in dev
     };
   }
 
